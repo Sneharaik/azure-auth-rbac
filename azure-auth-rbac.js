@@ -1,53 +1,6 @@
-// azure-auth-rbac.js - FIXED FOR RETOOL
+// azure-auth-rbac.js - FIXED FOR RETOOL (Pass storage as parameter)
 (function (global) {
   console.log("🔹 Azure Auth RBAC Module Loaded");
-
-  // ============================================
-  // RETOOL STORAGE ADAPTER
-  // ============================================
-  // Retool uses localStorage.setValue/getValue instead of setItem/getItem
-  const storage = {
-    setItem: (key, value) => {
-      try {
-        if (typeof localStorage !== 'undefined' && localStorage.setValue) {
-          // Retool localStorage API
-          localStorage.setValue(key, value);
-        } else if (typeof localStorage !== 'undefined' && localStorage.setItem) {
-          // Browser localStorage API (fallback)
-          localStorage.setItem(key, value);
-        }
-      } catch (err) {
-        console.error("Storage setItem error:", err);
-      }
-    },
-    getItem: (key) => {
-      try {
-        if (typeof localStorage !== 'undefined' && localStorage.getValue) {
-          // Retool localStorage API
-          return localStorage.getValue(key);
-        } else if (typeof localStorage !== 'undefined' && localStorage.getItem) {
-          // Browser localStorage API (fallback)
-          return localStorage.getItem(key);
-        }
-      } catch (err) {
-        console.error("Storage getItem error:", err);
-        return null;
-      }
-    },
-    removeItem: (key) => {
-      try {
-        if (typeof localStorage !== 'undefined' && localStorage.removeValue) {
-          // Retool localStorage API
-          localStorage.removeValue(key);
-        } else if (typeof localStorage !== 'undefined' && localStorage.removeItem) {
-          // Browser localStorage API (fallback)
-          localStorage.removeItem(key);
-        }
-      } catch (err) {
-        console.error("Storage removeItem error:", err);
-      }
-    }
-  };
 
   // ============================================
   // CONFIGURATION (can be overridden)
@@ -94,6 +47,8 @@
   
   function initRedirect(config = {}) {
     const cfg = { ...DEFAULT_CONFIG, ...config };
+    const storage = config.storage; // PASSED IN
+    
     const isEditor = (typeof retoolContext !== 'undefined' && retoolContext.inEditorMode) || 
                      window.location.href.includes('/editor/');
     const currentPage = typeof retoolContext !== 'undefined' ? retoolContext.currentPage : null;
@@ -105,7 +60,7 @@
       return { action: 'none', reason: 'editor_mode' };
     }
 
-    const token = storage.getItem(`${cfg.storageKeyPrefix}_access_token`);
+    const token = storage ? storage.getValue(`${cfg.storageKeyPrefix}_access_token`) : null;
     const hasToken = !!token;
 
     console.log("Token present:", hasToken);
@@ -179,10 +134,23 @@
       componentAccessConfigVar = {},
       storageKeyPrefix = "azure",
       autoRedirectToHome = true,
-      homePageId = "Home"
+      homePageId = "Home",
+      storage = null // PASSED IN FROM RETOOL
     } = options;
 
     console.log("🔹 Azure Auth Module Running");
+
+    if (!storage) {
+      console.error("❌ Storage object not provided - cannot proceed");
+      return {
+        isAuthenticated: false,
+        user: null,
+        roles: [],
+        pages: {},
+        components: {},
+        error: "Storage not provided"
+      };
+    }
 
     let user = null;
     let userRoles = [];
@@ -205,7 +173,7 @@
 
       if (access_token) {
         console.log("✓ Access token found - Storing...");
-        storage.setItem(`${storageKeyPrefix}_access_token`, access_token);
+        storage.setValue(`${storageKeyPrefix}_access_token`, access_token);
         isAccessTokenValid = true;
       }
 
@@ -214,7 +182,7 @@
           console.log("✓ ID token found - Decoding...");
           user = decodeJwt(id_token);
           if (user) {
-            storage.setItem(`${storageKeyPrefix}_user_info`, JSON.stringify(user));
+            storage.setValue(`${storageKeyPrefix}_user_info`, JSON.stringify(user));
             userRoles = Array.isArray(user.roles) ? user.roles : [];
             console.log("✓ User decoded:", user?.email || user?.upn || user?.name || "Unknown");
             console.log("✓ User roles:", userRoles);
@@ -234,8 +202,8 @@
     } else {
       // Check localStorage for existing tokens
       console.log("⚠ No hash found - Checking localStorage...");
-      const storedToken = storage.getItem(`${storageKeyPrefix}_access_token`);
-      const storedUser = storage.getItem(`${storageKeyPrefix}_user_info`);
+      const storedToken = storage.getValue(`${storageKeyPrefix}_access_token`);
+      const storedUser = storage.getValue(`${storageKeyPrefix}_user_info`);
       if (storedToken && storedUser) {
         user = JSON.parse(storedUser);
         userRoles = Array.isArray(user?.roles) ? user.roles : [];
@@ -294,10 +262,14 @@
   
   function logout(config = {}) {
     const cfg = { ...DEFAULT_CONFIG, ...config };
+    const storage = config.storage; // PASSED IN
+    
     console.log("🔹 Logging out...");
     
-    storage.removeItem(`${cfg.storageKeyPrefix}_access_token`);
-    storage.removeItem(`${cfg.storageKeyPrefix}_user_info`);
+    if (storage) {
+      storage.removeValue(`${cfg.storageKeyPrefix}_access_token`);
+      storage.removeValue(`${cfg.storageKeyPrefix}_user_info`);
+    }
     
     console.log("✅ Logged out - Redirecting to Login");
     
