@@ -1,6 +1,53 @@
-// azure-auth-rbac.js
+// azure-auth-rbac.js - FIXED FOR RETOOL
 (function (global) {
   console.log("🔹 Azure Auth RBAC Module Loaded");
+
+  // ============================================
+  // RETOOL STORAGE ADAPTER
+  // ============================================
+  // Retool uses localStorage.setValue/getValue instead of setItem/getItem
+  const storage = {
+    setItem: (key, value) => {
+      try {
+        if (typeof localStorage !== 'undefined' && localStorage.setValue) {
+          // Retool localStorage API
+          localStorage.setValue(key, value);
+        } else if (typeof localStorage !== 'undefined' && localStorage.setItem) {
+          // Browser localStorage API (fallback)
+          localStorage.setItem(key, value);
+        }
+      } catch (err) {
+        console.error("Storage setItem error:", err);
+      }
+    },
+    getItem: (key) => {
+      try {
+        if (typeof localStorage !== 'undefined' && localStorage.getValue) {
+          // Retool localStorage API
+          return localStorage.getValue(key);
+        } else if (typeof localStorage !== 'undefined' && localStorage.getItem) {
+          // Browser localStorage API (fallback)
+          return localStorage.getItem(key);
+        }
+      } catch (err) {
+        console.error("Storage getItem error:", err);
+        return null;
+      }
+    },
+    removeItem: (key) => {
+      try {
+        if (typeof localStorage !== 'undefined' && localStorage.removeValue) {
+          // Retool localStorage API
+          localStorage.removeValue(key);
+        } else if (typeof localStorage !== 'undefined' && localStorage.removeItem) {
+          // Browser localStorage API (fallback)
+          localStorage.removeItem(key);
+        }
+      } catch (err) {
+        console.error("Storage removeItem error:", err);
+      }
+    }
+  };
 
   // ============================================
   // CONFIGURATION (can be overridden)
@@ -42,13 +89,9 @@
   }
 
   // ============================================
-  // NEW: INIT REDIRECT LOGIC
+  // INIT REDIRECT LOGIC
   // ============================================
   
-  /**
-   * Check authentication and redirect if needed
-   * Call this on EVERY page load
-   */
   function initRedirect(config = {}) {
     const cfg = { ...DEFAULT_CONFIG, ...config };
     const isEditor = (typeof retoolContext !== 'undefined' && retoolContext.inEditorMode) || 
@@ -57,19 +100,16 @@
     
     console.log("🔹 Init Redirect Check:", { isEditor, currentPage });
 
-    // Skip redirect in editor mode
     if (isEditor) {
       console.log("⚠️ Editor mode - skipping redirect");
       return { action: 'none', reason: 'editor_mode' };
     }
 
-    // Check for token in localStorage
-    const token = localStorage.getItem(`${cfg.storageKeyPrefix}_access_token`);
+    const token = storage.getItem(`${cfg.storageKeyPrefix}_access_token`);
     const hasToken = !!token;
 
     console.log("Token present:", hasToken);
 
-    // If no token and not on login page, redirect to login
     if (!hasToken && currentPage !== cfg.loginPageId) {
       console.log("❌ No token - Redirecting to Login");
       if (typeof utils !== 'undefined') {
@@ -78,7 +118,6 @@
       return { action: 'redirect_to_login', reason: 'no_token' };
     }
 
-    // If has token but on login page, might be Azure redirect - stay on login to process
     if (hasToken && currentPage === cfg.loginPageId) {
       console.log("✅ Token exists - staying on Login to process Azure redirect");
       return { action: 'none', reason: 'processing_auth' };
@@ -89,13 +128,9 @@
   }
 
   // ============================================
-  // NEW: START AZURE LOGIN
+  // START AZURE LOGIN
   // ============================================
   
-  /**
-   * Initiate Azure OAuth login
-   * Call this from Login page button
-   */
   function startAzureLogin(config = {}) {
     const cfg = { ...DEFAULT_CONFIG, ...config };
     
@@ -104,13 +139,11 @@
     console.log("Tenant ID:", cfg.tenantId);
     console.log("Scopes:", cfg.scopes);
 
-    // Get redirect URI (current URL without hash)
     const redirectUri = config.redirectUri || 
                        (typeof retoolContext !== 'undefined' ? retoolContext.url.split("#")[0] : window.location.href.split("#")[0]);
 
     console.log("Redirect URI:", redirectUri);
 
-    // Build Azure OAuth URL
     const authUrl =
       `https://login.microsoftonline.com/${cfg.tenantId}/oauth2/v2.0/authorize` +
       `?client_id=${cfg.clientId}` +
@@ -122,7 +155,6 @@
 
     console.log("🚀 Redirecting to Microsoft...");
 
-    // Redirect to Azure
     if (typeof utils !== 'undefined') {
       utils.openUrl(authUrl, { newTab: false });
     } else {
@@ -137,7 +169,7 @@
   }
 
   // ============================================
-  // MAIN AUTHENTICATE FUNCTION (Enhanced)
+  // MAIN AUTHENTICATE FUNCTION
   // ============================================
   
   async function authenticate(options = {}) {
@@ -146,8 +178,8 @@
       pageAccessConfigVar = {},
       componentAccessConfigVar = {},
       storageKeyPrefix = "azure",
-      autoRedirectToHome = true,  // NEW: auto redirect to home after auth
-      homePageId = "Home"          // NEW: home page ID
+      autoRedirectToHome = true,
+      homePageId = "Home"
     } = options;
 
     console.log("🔹 Azure Auth Module Running");
@@ -173,7 +205,7 @@
 
       if (access_token) {
         console.log("✓ Access token found - Storing...");
-        localStorage.setItem(`${storageKeyPrefix}_access_token`, access_token);
+        storage.setItem(`${storageKeyPrefix}_access_token`, access_token);
         isAccessTokenValid = true;
       }
 
@@ -182,7 +214,7 @@
           console.log("✓ ID token found - Decoding...");
           user = decodeJwt(id_token);
           if (user) {
-            localStorage.setItem(`${storageKeyPrefix}_user_info`, JSON.stringify(user));
+            storage.setItem(`${storageKeyPrefix}_user_info`, JSON.stringify(user));
             userRoles = Array.isArray(user.roles) ? user.roles : [];
             console.log("✓ User decoded:", user?.email || user?.upn || user?.name || "Unknown");
             console.log("✓ User roles:", userRoles);
@@ -192,18 +224,18 @@
         }
       }
 
-      // NEW: Auto-redirect to home after processing tokens
+      // Auto-redirect to home after processing tokens
       if (isAccessTokenValid && autoRedirectToHome && typeof utils !== 'undefined') {
         console.log("🔄 Auth successful - Redirecting to Home page");
         setTimeout(() => {
           utils.openPage(homePageId, {});
-        }, 500); // Small delay to ensure storage is saved
+        }, 500);
       }
     } else {
       // Check localStorage for existing tokens
       console.log("⚠ No hash found - Checking localStorage...");
-      const storedToken = localStorage.getItem(`${storageKeyPrefix}_access_token`);
-      const storedUser = localStorage.getItem(`${storageKeyPrefix}_user_info`);
+      const storedToken = storage.getItem(`${storageKeyPrefix}_access_token`);
+      const storedUser = storage.getItem(`${storageKeyPrefix}_user_info`);
       if (storedToken && storedUser) {
         user = JSON.parse(storedUser);
         userRoles = Array.isArray(user?.roles) ? user.roles : [];
@@ -242,7 +274,6 @@
     }
     console.log("✓ Component access computed:", components);
 
-    // Prepare final result
     const result = {
       isAuthenticated: isAccessTokenValid,
       user,
@@ -258,20 +289,18 @@
   }
 
   // ============================================
-  // NEW: LOGOUT FUNCTION
+  // LOGOUT FUNCTION
   // ============================================
   
   function logout(config = {}) {
     const cfg = { ...DEFAULT_CONFIG, ...config };
     console.log("🔹 Logging out...");
     
-    // Clear localStorage
-    localStorage.removeItem(`${cfg.storageKeyPrefix}_access_token`);
-    localStorage.removeItem(`${cfg.storageKeyPrefix}_user_info`);
+    storage.removeItem(`${cfg.storageKeyPrefix}_access_token`);
+    storage.removeItem(`${cfg.storageKeyPrefix}_user_info`);
     
     console.log("✅ Logged out - Redirecting to Login");
     
-    // Redirect to login
     if (typeof utils !== 'undefined') {
       utils.openPage(cfg.loginPageId, {});
     }
@@ -286,9 +315,9 @@
   global.RetoolAuthFramework = {
     authenticate,
     hasAccess,
-    initRedirect,       // NEW
-    startAzureLogin,    // NEW
-    logout              // NEW
+    initRedirect,
+    startAzureLogin,
+    logout
   };
 
 })(window);
