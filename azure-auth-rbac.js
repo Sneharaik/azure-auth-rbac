@@ -1,48 +1,48 @@
 (function (global) {
 
-  console.log("🔹 Azure Auth RBAC Module Loaded");
+  function parseConfig(config) {
+    if (!config) return {};
+    if (typeof config === "string") {
+      try { return JSON.parse(config); }
+      catch { return {}; }
+    }
+    return config;
+  }
 
   function decodeJwt(token) {
     try {
-      const base64Url = token.split(".")[1];
-      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-      const jsonPayload = decodeURIComponent(
-        atob(base64)
-          .split("")
-          .map(c => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
-          .join("")
+      const base64 = token.split(".")[1]
+        .replace(/-/g, "+")
+        .replace(/_/g, "/");
+      return JSON.parse(
+        decodeURIComponent(
+          atob(base64)
+            .split("")
+            .map(c => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+            .join("")
+        )
       );
-      const parsed = JSON.parse(jsonPayload);
-      console.log("✅ JWT decoded successfully");
-      return parsed;
-    } catch (err) {
-      console.error("❌ JWT decode failed:", err);
+    } catch {
       return null;
     }
   }
 
   function hasAccess(userRoles = [], rolesEnabled = [], rolesDisabled = []) {
-    if (!userRoles || userRoles.length === 0) {
-      console.log("⚠ No user roles found");
-      return false;
+    if (!userRoles.length) return false;
+    if (rolesDisabled.some(r => userRoles.includes(r))) return false;
+    if (!rolesEnabled.length) return false;
+    return rolesEnabled.some(r => userRoles.includes(r));
+  }
+
+  function buildACL(config, userRoles) {
+    const result = {};
+    for (const key in config) {
+      const { roles_enabled = [], roles_disabled = [] } = config[key] || {};
+      result[key] = {
+        hasAccess: hasAccess(userRoles, roles_enabled, roles_disabled)
+      };
     }
-
-    for (const role of rolesDisabled) {
-      if (userRoles.includes(role)) {
-        console.log("⛔ Access denied due to disabled role:", role);
-        return false;
-      }
-    }
-
-    if (!rolesEnabled.length) {
-      console.log("⚠ No enabled roles configured");
-      return false;
-    }
-
-    const allowed = rolesEnabled.some(role => userRoles.includes(role));
-
-    console.log("🔐 Access check:", allowed);
-    return allowed;
+    return result;
   }
 
   async function authenticate({
@@ -51,139 +51,57 @@
     componentAccessConfigVar = {}
   } = {}) {
 
-    console.log("🔹 Azure Auth Module Running");
-
-    let user = null;
-    let userRoles = [];
-    let currentHash = "";
-    let isAccessTokenValid = false;
-    let access_token = null;
-    let id_token = null;
-
-    let urlObj;
+    let url;
     try {
-      urlObj = new URL(redirectUrl);
-      currentHash = urlObj.hash || "";
-      console.log("🌍 Current Path:", urlObj.pathname);
-      console.log("🔎 Current Hash:", currentHash || "(empty)");
-    } catch (err) {
-      console.error("❌ Invalid redirect URL:", err.message);
+      url = new URL(redirectUrl);
+    } catch {
       return { isAuthenticated: false, loginRedirectUrl: null };
     }
 
-    if (urlObj.pathname.includes("/editor")) {
-      console.log("🟣 Editor mode detected — bypassing auth logic");
-      return {
-        isAuthenticated: false,
-        loginRedirectUrl: redirectUrl
-      };
+    if (url.pathname.includes("/editor")) {
+      return { isAuthenticated: false, loginRedirectUrl: null };
     }
 
-    if (!currentHash) {
-
-      if (urlObj.pathname.endsWith("/Login")) {
-        console.log("🟡 Already on Login page — no redirect");
-        return {
-          isAuthenticated: false,
-          loginRedirectUrl: null
-        };
+    if (!url.hash) {
+      if (url.pathname.endsWith("/Login")) {
+        return { isAuthenticated: false, loginRedirectUrl: null };
       }
 
-      console.log("⚠ No hash found — redirecting to Login");
-
-      urlObj.hash = "";
-
-      const pathParts = urlObj.pathname.split("/").filter(Boolean);
-
-      if (pathParts.length > 0) {
-        pathParts[pathParts.length - 1] = "Login";
-      } else {
-        pathParts.push("Login");
-      }
-
-      urlObj.pathname = "/" + pathParts.join("/");
-
-      console.log("➡ Redirect URL:", urlObj.toString());
+      const parts = url.pathname.split("/").filter(Boolean);
+      parts[parts.length - 1] = "Login";
+      url.pathname = "/" + parts.join("/");
+      url.hash = "";
 
       return {
         isAuthenticated: false,
-        loginRedirectUrl: urlObj.toString()
+        loginRedirectUrl: url.toString()
       };
     }
 
-    console.log("✅ Hash detected — processing tokens");
+    const params = new URLSearchParams(url.hash.substring(1));
+    const access_token = params.get("access_token");
+    const id_token = params.get("id_token");
 
-    const params = new URLSearchParams(currentHash.substring(1));
+    const user = id_token ? decodeJwt(id_token) : null;
+    const roles = Array.isArray(user?.roles) ? user.roles : [];
 
-    access_token = params.get("access_token");
-    id_token = params.get("id_token");
+    const pageConfig = parseConfig(pageAccessConfigVar);
+    const componentConfig = parseConfig(componentAccessConfigVar);
 
-    if (access_token) {
-      console.log("✅ Access token found");
-      isAccessTokenValid = true;
-    } else {
-      console.log("❌ No access token found");
-    }
+    const pages = buildACL(pageConfig, roles);
+    const components = buildACL(componentConfig, roles);
 
-    if (id_token) {
-      console.log("🔓 ID token found — decoding");
-      user = decodeJwt(id_token);
-
-      if (user) {
-        userRoles = Array.isArray(user.roles) ? user.roles : [];
-        console.log("👤 User:", user?.email || user?.upn || user?.name || "Unknown");
-        console.log("🎭 Roles:", userRoles);
-      }
-    }
-
-    const pageAccessConfig =
-      typeof pageAccessConfigVar === "string"
-        ? JSON.parse(pageAccessConfigVar)
-        : pageAccessConfigVar;
-
-    const componentAccessConfig =
-      typeof componentAccessConfigVar === "string"
-        ? JSON.parse(componentAccessConfigVar)
-        : componentAccessConfigVar;
-
-    const pages = {};
-    console.log("📄 Computing page access...");
-    for (const pageId in pageAccessConfig) {
-      const config = pageAccessConfig[pageId];
-      pages[pageId] = {
-        hasAccess: hasAccess(
-          userRoles,
-          config?.roles_enabled || [],
-          config?.roles_disabled || []
-        )
-      };
-      console.log("Page:", pageId, "Access:", pages[pageId].hasAccess);
-    }
-
-    const components = {};
-    console.log("🧩 Computing component access...");
-    for (const compId in componentAccessConfig) {
-      const config = componentAccessConfig[compId];
-      components[compId] = {
-        hasAccess: hasAccess(
-          userRoles,
-          config?.roles_enabled || [],
-          config?.roles_disabled || []
-        )
-      };
-      console.log("Component:", compId, "Access:", components[compId].hasAccess);
-    }
-
-    console.log("🎯 Authentication complete:", isAccessTokenValid);
+    const generatedACL = { ...pages, ...components };
 
     return {
-      isAuthenticated: isAccessTokenValid,
+      isAuthenticated: !!access_token,
       access_token,
       id_token,
       user,
-      roles: userRoles,
+      roles,
       pages,
-      components
+      components,
+      generatedACL
     };
   }
 
