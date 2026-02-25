@@ -1,7 +1,4 @@
-// azure-auth-rbac.js
 (function (global) {
-
-  console.log("🔹 Azure Auth RBAC Module Loaded");
 
   function decodeJwt(token) {
     try {
@@ -15,7 +12,6 @@
       );
       return JSON.parse(jsonPayload);
     } catch (err) {
-      console.error("✗ JWT decode failed:", err);
       return null;
     }
   }
@@ -38,8 +34,6 @@
     componentAccessConfigVar = {}
   } = {}) {
 
-    console.log("🔹 Azure Auth Module Running");
-
     let user = null;
     let userRoles = [];
     let currentHash = "";
@@ -47,73 +41,63 @@
     let access_token = null;
     let id_token = null;
 
+    let urlObj;
     try {
-      currentHash = new URL(redirectUrl).hash || "";
-      console.log("Current URL Hash:", currentHash || "(empty)");
+      urlObj = new URL(redirectUrl);
+      currentHash = urlObj.hash || "";
     } catch (err) {
-      console.error("Could not parse redirect URL:", err.message);
+      return { isAuthenticated: false, loginRedirectUrl: null };
     }
 
-    // 🔴 If NO HASH → return Login URL only
+    if (urlObj.pathname.includes("/editor")) {
+      return {
+        isAuthenticated: false,
+        loginRedirectUrl: redirectUrl
+      };
+    }
+
     if (!currentHash) {
 
-      console.log("⚠ No hash found. Skipping validation.");
-
-      try {
-        const urlObj = new URL(redirectUrl);
-        urlObj.hash = "";
-
-        const pathParts = urlObj.pathname.split("/").filter(Boolean);
-
-        if (pathParts.length > 0) {
-          pathParts[pathParts.length - 1] = "Login";
-        } else {
-          pathParts.push("Login");
-        }
-
-        urlObj.pathname = "/" + pathParts.join("/");
-
-        return {
-          isAuthenticated: false,
-          loginRedirectUrl: urlObj.toString()
-        };
-
-      } catch (err) {
-        console.error("URL manipulation failed:", err);
+      if (urlObj.pathname.endsWith("/Login")) {
         return {
           isAuthenticated: false,
           loginRedirectUrl: null
         };
       }
+
+      urlObj.hash = "";
+
+      const pathParts = urlObj.pathname.split("/").filter(Boolean);
+
+      if (pathParts.length > 0) {
+        pathParts[pathParts.length - 1] = "Login";
+      } else {
+        pathParts.push("Login");
+      }
+
+      urlObj.pathname = "/" + pathParts.join("/");
+
+      return {
+        isAuthenticated: false,
+        loginRedirectUrl: urlObj.toString()
+      };
     }
 
-    // ✅ If HASH EXISTS → process tokens normally
-    console.log("✓ Hash detected - Processing tokens...");
     const params = new URLSearchParams(currentHash.substring(1));
 
     access_token = params.get("access_token");
     id_token = params.get("id_token");
 
     if (access_token) {
-      console.log("✓ Access token found");
       isAccessTokenValid = true;
     }
 
     if (id_token) {
-      console.log("✓ ID token found - Decoding...");
       user = decodeJwt(id_token);
-
       if (user) {
         userRoles = Array.isArray(user.roles) ? user.roles : [];
-        console.log(
-          "✓ User decoded:",
-          user?.email || user?.upn || user?.name || "Unknown"
-        );
-        console.log("✓ User roles:", userRoles);
       }
     }
-
-    console.log("⚙️ Parsing access configurations...");
 
     const pageAccessConfig =
       typeof pageAccessConfigVar === "string"
@@ -125,7 +109,6 @@
         ? JSON.parse(componentAccessConfigVar)
         : componentAccessConfigVar;
 
-    console.log("⚙️ Computing page access...");
     const pages = {};
     for (const pageId in pageAccessConfig) {
       const config = pageAccessConfig[pageId];
@@ -138,7 +121,6 @@
       };
     }
 
-    console.log("⚙️ Computing component access...");
     const components = {};
     for (const compId in componentAccessConfig) {
       const config = componentAccessConfig[compId];
