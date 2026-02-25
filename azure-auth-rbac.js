@@ -1,5 +1,6 @@
 // azure-auth-rbac.js
-(function (global)) {
+(function (global) {
+
   console.log("🔹 Azure Auth RBAC Module Loaded");
 
   function decodeJwt(token) {
