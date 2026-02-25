@@ -54,42 +54,6 @@
       console.error("Could not parse redirect URL:", err.message);
     }
 
-    // 🔴 If no hash → Redirect to Login page
-    if (!currentHash) {
-      console.log("⚠ No hash found in URL - Redirecting to Login page...");
-
-      try {
-        const urlObj = new URL(redirectUrl);
-
-        // Remove hash
-        urlObj.hash = "";
-
-        const pathParts = urlObj.pathname.split("/").filter(Boolean);
-
-        // Prevent redirect loop (if already on Login page)
-        const lastSegment = pathParts[pathParts.length - 1];
-        if (lastSegment !== "Login") {
-          if (pathParts.length > 0) {
-            pathParts[pathParts.length - 1] = "Login";
-          } else {
-            pathParts.push("Login");
-          }
-
-          urlObj.pathname = "/" + pathParts.join("/");
-
-          console.log("➡ Redirecting to:", urlObj.toString());
-
-          window.location.replace(urlObj.toString());
-          return; // Stop execution after redirect
-        } else {
-          console.log("Already on Login page. No redirect needed.");
-        }
-
-      } catch (err) {
-        console.error("Redirect failed:", err);
-      }
-    }
-
     // ✅ If hash exists → process tokens
     if (currentHash) {
       console.log("✓ Hash detected - Processing tokens...");
@@ -116,6 +80,8 @@
           console.log("✓ User roles:", userRoles);
         }
       }
+    } else {
+      console.log("⚠ No hash found in URL. Returning unauthenticated state.");
     }
 
     console.log("⚙️ Parsing access configurations...");
@@ -142,7 +108,6 @@
         )
       };
     }
-    console.log("✓ Page access computed:", pages);
 
     console.log("⚙️ Computing component access...");
     const components = {};
@@ -156,7 +121,6 @@
         )
       };
     }
-    console.log("✓ Component access computed:", components);
 
     const result = {
       isAuthenticated: isAccessTokenValid,
