@@ -92,7 +92,7 @@ const RetoolAuthFramework = (() => {
     const params = parseHashParams(redirectUrl);
 
     // Check if URL contains "home" and has access_token
-    if (lowerUrl.includes('home') && params['access_token']) {
+    if ( params['access_token']) {
       return home_validate(redirectUrl, pageConfig, componentConfig);
     } else {
       // Redirect to login if not home or no access_token
