@@ -54,34 +54,63 @@
       console.error("Could not parse redirect URL:", err.message);
     }
 
-    // ✅ If hash exists → process tokens
-    if (currentHash) {
-      console.log("✓ Hash detected - Processing tokens...");
-      const params = new URLSearchParams(currentHash.substring(1));
+    // 🔴 If NO HASH → return Login URL only
+    if (!currentHash) {
 
-      access_token = params.get("access_token");
-      id_token = params.get("id_token");
+      console.log("⚠ No hash found. Skipping validation.");
 
-      if (access_token) {
-        console.log("✓ Access token found");
-        isAccessTokenValid = true;
-      }
+      try {
+        const urlObj = new URL(redirectUrl);
+        urlObj.hash = "";
 
-      if (id_token) {
-        console.log("✓ ID token found - Decoding...");
-        user = decodeJwt(id_token);
+        const pathParts = urlObj.pathname.split("/").filter(Boolean);
 
-        if (user) {
-          userRoles = Array.isArray(user.roles) ? user.roles : [];
-          console.log(
-            "✓ User decoded:",
-            user?.email || user?.upn || user?.name || "Unknown"
-          );
-          console.log("✓ User roles:", userRoles);
+        if (pathParts.length > 0) {
+          pathParts[pathParts.length - 1] = "Login";
+        } else {
+          pathParts.push("Login");
         }
+
+        urlObj.pathname = "/" + pathParts.join("/");
+
+        return {
+          isAuthenticated: false,
+          loginRedirectUrl: urlObj.toString()
+        };
+
+      } catch (err) {
+        console.error("URL manipulation failed:", err);
+        return {
+          isAuthenticated: false,
+          loginRedirectUrl: null
+        };
       }
-    } else {
-      console.log("⚠ No hash found in URL. Returning unauthenticated state.");
+    }
+
+    // ✅ If HASH EXISTS → process tokens normally
+    console.log("✓ Hash detected - Processing tokens...");
+    const params = new URLSearchParams(currentHash.substring(1));
+
+    access_token = params.get("access_token");
+    id_token = params.get("id_token");
+
+    if (access_token) {
+      console.log("✓ Access token found");
+      isAccessTokenValid = true;
+    }
+
+    if (id_token) {
+      console.log("✓ ID token found - Decoding...");
+      user = decodeJwt(id_token);
+
+      if (user) {
+        userRoles = Array.isArray(user.roles) ? user.roles : [];
+        console.log(
+          "✓ User decoded:",
+          user?.email || user?.upn || user?.name || "Unknown"
+        );
+        console.log("✓ User roles:", userRoles);
+      }
     }
 
     console.log("⚙️ Parsing access configurations...");
@@ -122,7 +151,7 @@
       };
     }
 
-    const result = {
+    return {
       isAuthenticated: isAccessTokenValid,
       access_token,
       id_token,
@@ -131,11 +160,6 @@
       pages,
       components
     };
-
-    console.log("✅ Azure Auth Module Complete");
-    console.log("Final result:", result);
-
-    return result;
   }
 
   global.RetoolAuthFramework = {
