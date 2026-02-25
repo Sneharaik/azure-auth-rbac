@@ -35,7 +35,7 @@
     let isAccessTokenValid = false;
 
     try {
-      currentHash = new URL(redirectUrl).hash || "";
+      currentHash = url.hashParams || "";
       console.log("Current URL Hash:", currentHash || "(empty)");
     } catch (err) {
       console.error("Could not parse redirect URL:", err.message);
