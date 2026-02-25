@@ -172,6 +172,7 @@
 
     const user = id_token ? decodeJwt(id_token) : null;
     const roles = Array.isArray(user?.roles) ? user.roles : [];
+    
 
     console.log("authenticate: User roles detected", roles);
 
@@ -193,7 +194,8 @@
       roles,
       pages,
       components,
-      generatedACL
+      generatedACL,
+      redirectUrl
     };
   }
 
